@@ -66,8 +66,8 @@ const config: ForgeConfig = {
 	publishers: [
 		new PublisherGithub({
 			repository: {
-				name: "manager",
-				owner: "mautrix",
+				name: "mautrix-manager",
+				owner: "JadedBlueEyes",
 			},
 			draft: true,
 		}),
