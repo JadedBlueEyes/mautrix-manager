@@ -10,10 +10,17 @@ if (require("electron-squirrel-startup")) {
 
 let homeserverURL = ""
 let accessToken = ""
+let supportsAuthedMedia = false
 
-ipcMain.handle("mautrix:access-token-changed", (event, newDetails: AccessTokenChangedParams) => {
-	homeserverURL = newDetails.homeserverURL
+ipcMain.handle("mautrix:access-token-changed", async (event, newDetails: AccessTokenChangedParams) => {
+	homeserverURL = newDetails.homeserverURL.replace(/\/$/, "") // remove trailing slash
 	accessToken = newDetails.accessToken
+	const versions = await (await fetch(`${homeserverURL}/_matrix/client/versions`, {
+		headers: {
+			Authorization: `Bearer ${accessToken}`,
+		}
+	})).json();
+	supportsAuthedMedia = Boolean(versions?.versions?.includes("v1.11"))
 })
 
 ipcMain.handle("mautrix:open-in-browser", (event, url: string) => {
@@ -49,6 +56,22 @@ const createWindow = () => {
 		},
 	})
 
+	// Redirect media requests to authenticated media endpoints
+	mainWindow.webContents.session.webRequest.onBeforeRequest((details, callback) => {
+		if (details.resourceType !== "image" || !details.url.startsWith(`${homeserverURL}/_matrix/media/v3/`)) {
+			callback({})
+			return
+		}
+		let url = details.url;
+		if (supportsAuthedMedia && accessToken) {
+			url = details.url.replace(/\/media\/v3\/(.*)\//, "/client/v1/media/$1/");
+			console.log("Redirecting to", url)
+		}
+		callback({
+			redirectURL: url,
+		})
+	})
+
 	mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
 		if (
 			details.resourceType !== "image" ||
@@ -62,6 +85,15 @@ const createWindow = () => {
 				...details.requestHeaders,
 				Authorization: `Bearer ${accessToken}`,
 			},
+		})
+	})
+
+	// Allow cross-origin requests
+	mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+		const responseHeaders = details.responseHeaders || {};
+		responseHeaders["access-control-allow-origin"] = ["*"]
+		callback({
+			responseHeaders,
 		})
 	})
 
